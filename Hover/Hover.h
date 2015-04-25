@@ -29,16 +29,19 @@
 
 
 class Hover {
- public:
-  Hover(uint8_t addr = 0x42);
-  void begin(int ts, int mclr);
-  void setRelease(int ts);
-  boolean getStatus(int ts);
-  byte getEvent(void);
-  String getEventString(byte eventByte);
+  public:
+    Hover(uint8_t addr = 0x42);
+    void begin(int ts, int mclr);
+    void setRelease(int ts);
+    boolean getStatus(int ts);
+    byte getEvent(void);
+    String getEventString(byte eventByte);
 
- private:
-  uint8_t _i2caddr;
+  private:
+    uint8_t _i2caddr;
+    float pos_x;
+    float pos_y;
+    float pos_z;
 };
 
 
