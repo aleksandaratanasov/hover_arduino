@@ -22,17 +22,16 @@
 #  ===========================================================================*/
 
 #include <Hover.h>
-#ifndef I2C_T3_H
-#include <i2c_t3.h>
-#ifdef I2C_DEBUG
-    #include <rbuf.h> // linker fix
-#endif
-#endif
 
 
-#ifdef __AVR__
- #define Wire Wire
-#endif
+#if (defined(__MK20DX128__) || defined(__MK20DX256__))
+  #include <i2c_t3.h>
+
+#elif defined(ARDUINO)    // Perhaps this is an arduino-style env?
+  #include <Wire.h>
+
+#endif   // Platform Wire.h case-offs
+
 
 Hover::Hover(uint8_t addr) {
   _i2caddr = addr;
@@ -41,7 +40,7 @@ Hover::Hover(uint8_t addr) {
 void Hover::begin(int ts, int rst) {
   Wire.begin();
   pinMode(ts, INPUT);    //Used by TS line on MGC3130
-  pinMode(rst, OUTPUT);    //Used by TS line on MGC3130
+  pinMode(rst, OUTPUT);    //Used by reset line on MGC3130
   digitalWrite(rst, LOW);
   pinMode(rst, INPUT);    
   delay(3000);
@@ -85,7 +84,12 @@ byte Hover::getEvent(void) {
   Wire.requestFrom((uint8_t)_i2caddr, (uint8_t) bytes_expected);    // request 26 bytes from slave device at 0x42
 
   while(Wire.available() || (0 == bytes_expected--)) {     
-    data = Wire.read(); // receive a byte as character
+    #if defined(_BOARD_FUBARINO_MINI_)    // Fubarino
+	  data = Wire.receive(); // receive a byte as character
+	#else
+	  data = Wire.read(); // receive a byte as character
+	#endif
+
     switch (c) {
       case 0:   // Length of the transfer by the sensor's reckoning.
         if (bytes_expected < (data-1)) {
