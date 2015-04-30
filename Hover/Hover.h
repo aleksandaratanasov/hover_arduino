@@ -27,21 +27,68 @@
 
 #include "Arduino.h"
 
+#define MGC3130_ISR_MARKER_TS 0x01
+#define MGC3130_ISR_MARKER_G0 0x80
+#define MGC3130_ISR_MARKER_G1 0x40
+#define MGC3130_ISR_MARKER_G2 0x20
+#define MGC3130_ISR_MARKER_G3 0x10
+
+#if defined(_BOARD_FUBARINO_MINI_)
+#define BOARD_IRQS_AND_PINS_DISTINCT 1
+#endif
+
+
+class StringBuilder;
 
 class Hover {
   public:
-    Hover(uint8_t addr = 0x42);
-    void begin(int ts, int mclr);
-    void setRelease(int ts);
-    boolean getStatus(int ts);
-    byte getEvent(void);
-    String getEventString(byte eventByte);
+	uint8_t last_event;
+	uint32_t events_received;
+
+    Hover(int ts, int mclr, uint8_t addr = 0x42);
+    void begin();
+
+	int8_t service();
+    const char* getEventString(uint8_t eventByte);
+	
+	int8_t setIRQPin(uint8_t, int);
+	
+	void set_isr_mark(uint8_t mask);
+
+	void markClean();
+
+	void printBrief(StringBuilder* output);
+	void printDebug(StringBuilder*);
+
+	volatile static Hover* INSTANCE;
+
 
   private:
-    uint8_t _i2caddr;
-    float pos_x;
-    float pos_y;
-    float pos_z;
+    uint8_t _i2caddr;     // i2c address.
+
+	uint8_t _ts_pin;      // Pin number being used by the TS pin.
+	uint8_t _reset_pin;   // Pin number being used by the MCLR pin.
+	uint8_t _irq_pin_0;   // Pin number being used by optional IRQ pin.
+	uint8_t _irq_pin_1;   // Pin number being used by optional IRQ pin.
+	uint8_t _irq_pin_2;   // Pin number being used by optional IRQ pin.
+	uint8_t _irq_pin_3;   // Pin number being used by optional IRQ pin.
+	
+	uint8_t service_flags;
+	uint8_t class_state;
+	
+	uint8_t last_swipe;
+	uint8_t last_tap;
+
+    int32_t _pos_x;
+    int32_t _pos_y;
+    int32_t _pos_z;
+	int32_t wheel_position;
+	
+	uint8_t getEvent(void);
+	
+#ifdef BOARD_IRQS_AND_PINS_DISTINCT
+	int get_irq_num_by_pin(int _pin);
+#endif
 };
 
 
