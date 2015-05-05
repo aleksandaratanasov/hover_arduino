@@ -87,12 +87,8 @@ Hover::Hover(int ts, int rst, uint8_t addr) {
   _irq_pin_2 = 0;
   _irq_pin_3 = 0;
   
-  _pos_x = -1;
-  _pos_y = -1;
-  _pos_z = -1;
-  wheel_position = 0;
-  last_swipe = 0;
-  last_tap = 0;
+  markClean();
+  last_touch_noted = last_touch;
   
   events_received = 0;
   last_event = 0;
@@ -129,10 +125,10 @@ void Hover::begin() {
   #if defined(BOARD_IRQS_AND_PINS_DISTINCT)
 	int fubar_irq_number = get_irq_num_by_pin(_ts_pin);
 	if (fubar_irq_number >= 0) {
-		attachInterrupt(fubar_irq_number, hover_ts_irq, FALLING);
+		//attachInterrupt(fubar_irq_number, hover_ts_irq, FALLING);
 	}
   #else
-	attachInterrupt(_ts_pin, hover_ts_irq, FALLING);
+	//attachInterrupt(_ts_pin, hover_ts_irq, FALLING);
   #endif
   
   if (_irq_pin_0) {
@@ -185,9 +181,54 @@ void Hover::begin() {
 
   delay(400);
   digitalWrite(_reset_pin, 1);
+
+  enableApproachDetect(true);
   class_state = 0x01;
 }
 
+
+void Hover::enableApproachDetect(bool en) {
+  Wire.beginTransmission((uint8_t)_i2caddr);
+  Wire.write(0x10);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0xA2);
+  Wire.write(0x97);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(en ? 0x01 : 0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x10);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.endTransmission();
+}
+
+
+void Hover::enableAirwheel(bool en) {
+  Wire.beginTransmission((uint8_t)_i2caddr);
+  Wire.write(0x10);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0xA2);
+  Wire.write(0x90);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(en ? 0x20 : 0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x20);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.write(0x00);
+  Wire.endTransmission();
+}
 
 
 // Bleh... needs rework.
@@ -220,9 +261,10 @@ int8_t Hover::setIRQPin(uint8_t _mask, int pin) {
 
 int8_t Hover::service() {
   int8_t return_value = 0;
-  if (service_flags) {
-	if (service_flags & MGC3130_ISR_MARKER_TS) {
-	  service_flags &= ~((uint8_t) MGC3130_ISR_MARKER_TS);
+  if (digitalRead(_ts_pin)) {
+	  //service_flags &= ~((uint8_t) MGC3130_ISR_MARKER_TS);
+	  digitalWrite(_ts_pin, LOW);
+	  pinMode(_ts_pin, OUTPUT);
 
 	  if (getEvent()) {
 		return_value++;
@@ -230,8 +272,10 @@ int8_t Hover::service() {
 
       digitalWrite(_ts_pin, 1);
       pinMode(_ts_pin, INPUT);
-	}
-	else if (service_flags & MGC3130_ISR_MARKER_G0) {
+  }
+
+  if (service_flags) {
+	if (service_flags & MGC3130_ISR_MARKER_G0) {
 	  service_flags &= ~((uint8_t) MGC3130_ISR_MARKER_G0);
 	  Serial.println("G0");
 	  return_value = 1;
@@ -266,6 +310,7 @@ uint8_t Hover::getEvent(void) {
   byte data;
   int c = 0;
   events_received++;
+  uint32_t temp_value = 0;   // Used to aggregate fields that span several bytes.
   uint16_t data_set = 0;
   uint8_t return_value = 0;
   
@@ -276,18 +321,19 @@ uint8_t Hover::getEvent(void) {
   uint8_t bytes_expected = 32;  
   Wire.requestFrom((uint8_t)_i2caddr, (uint8_t) bytes_expected);    // request 26 bytes from slave device at 0x42
 
-  while(Wire.available() || (0 == bytes_expected--)) {     
+  while(Wire.available() && (0 < bytes_expected)) {     
     #if defined(_BOARD_FUBARINO_MINI_)    // Fubarino
 	  data = Wire.receive(); // receive a byte as character
 	#else
 	  data = Wire.read(); // receive a byte as character
 	#endif
 
+	bytes_expected--;
     switch (c++) {
       case 0:   // Length of the transfer by the sensor's reckoning.
-        if (bytes_expected < (data-1)) {
+        //if (bytes_expected < (data-1)) {
           bytes_expected = data - 1;  // Minus 1 because: we have already read one.
-        }
+        //}
         break;
       case 1:   // Flags.
 		last_event = (B00000001 << (data-1)) | B00100000;
@@ -314,34 +360,59 @@ uint8_t Hover::getEvent(void) {
       case 8:   //  DSP info
       case 9: 
         break;
-      case 10:  // GestureInfo
-		if (data > 1) {
-		  last_swipe = (B00000001 << (data-1)) | B00100000;
-		  return_value++;
-		}
+
+      case 10:  // GestureInfo in the next 4 bytes.
+		temp_value = data;
         break;
       case 11: 
-      case 12: 
-      case 13: 
+		temp_value += data << 8;
         break;
-      case 14:  // TouchInfo
-		if (data > B11111) {
-		  last_tap = ((data & B11100000) >> 5) | B01000000;
-		  return_value++;
+      case 12:  break;   // These bits are reserved.
+      case 13:
+		temp_value += data << 24;
+		if (0 == (temp_value & 0x80000000)) {   // Gesture recog completed?
+		  if (temp_value & 0x000060FC) {   // Swipe data
+			last_swipe |= ((temp_value >> 2) & 0x000000FF) | 0b10000000;
+			if (temp_value & 0x00010000) {
+			  last_swipe |= 0b01000000;   // Classify as an edge-swipe.
+			}
+			return_value++;
+		  }
 		}
+		temp_value = 0;
+        break;
+
+      case 14:  // TouchInfo in the next 4 bytes.
+		temp_value = data;
         break;
       case 15:
-		if (data > 0) {
-		  last_tap = (((data & B0011) << 3) | B01000000);
+		temp_value += data << 8;
+		if (temp_value & 0x0000001F) {
+		  last_touch = (temp_value & 0x0000001F) | 0x20;;
+		  return_value++;
+		}
+		else {
+		  last_touch = 0;
+		}
+		
+		if (temp_value & 0x000003E0) {
+		  last_tap = ((temp_value & 0x000003E0) >> 5) | 0x40;
+		  return_value++;
+		}
+		if (temp_value & 0x00007C00) {
+		  last_double_tap = ((temp_value & 0x00007C00) >> 10) | 0x80;
 		  return_value++;
 		}
         break;
-      case 16: 
-      case 17: 
-        break;
-      case 18:  // AirWheelInfo 
+      case 16:
+		touch_counter = data;
+		temp_value = 0;
+		break;
+      case 17:  break;   // These bits are reserved. 
+
+	  case 18:  // AirWheelInfo 
 		if (wheel_valid) {
-		  wheel_position += wheel_valid;
+		  wheel_position = (data%32)+1;
 		  return_value++;
 		}
         break;
@@ -380,55 +451,88 @@ uint8_t Hover::getEvent(void) {
   }
   
   if (pos_valid) return_value++;
-  
   return return_value;
 }
 
 
+bool Hover::isDirty() {
+  if (isPositionDirty())   return true;
+  if (0 < wheel_position)  return true;
+  if (0 < last_touch)      return true;
+  if (0 < last_tap)        return true;
+  if (0 < last_swipe)      return true;
+  return isTouchDirty();
+}
+
 void Hover::markClean() {
-  last_tap   = 0;
-  last_swipe = 0;
-  last_event = 0;
-  _pos_x = -1;
-  _pos_y = -1;
-  _pos_z = -1;
-  wheel_position = 0;
+  last_touch_noted = last_touch;
+  last_tap        =  0;
+  last_double_tap =  0;
+  last_swipe      =  0;
+  last_event      =  0;
+  touch_counter   =  0;
+  _pos_x          = -1;
+  _pos_y          = -1;
+  _pos_z          = -1;
+  wheel_position  =  0;
+  special         =  0;
 }
 
 
 void Hover::printBrief(StringBuilder* output) {
-  if (last_tap) {
-	output->concat(getEventString(last_tap));
+  if (wheel_position) {
+	output->concatf("Airwheel: %d\n", wheel_position);
   }
-  else if (last_swipe) {
-	output->concat(getEventString(last_swipe));
-  }
-  else if ((_pos_x >= 0) || (_pos_y >= 0) || (_pos_z >= 0)) {
-	output->concatf("(%d, %d, %d)\n", _pos_x, _pos_y, _pos_z);
+  else if (isPositionDirty()) {
+	output->concatf("(0x%04x, 0x%04x, 0x%04x)\n", _pos_x, _pos_y, _pos_z);
   }
 }
 
 
-const char* Hover::getEventString(uint8_t eventByte) {
+const char* Hover::getSwipeString(uint8_t eventByte) {
   switch (eventByte) {
-	case B00100010:	return "Right Swipe";
-	case B00100100:	return "Left Swipe";
-	case B00101000:	return "Up Swipe";
-	case B00110000:	return "Down Swipe";
+	case B10000010:	return "Right Swipe";
+	case B10000100:	return "Left Swipe";
+	case B10001000:	return "Up Swipe";
+	case B10010000:	return "Down Swipe";
+	case B11000010:	return "Right Swipe (Edge)";
+	case B11000100:	return "Left Swipe (Edge)";
+	case B11001000:	return "Up Swipe (Edge)";
+	case B11010000:	return "Down Swipe (Edge)";
+  } 
+  
+  return "<NONE>";
+}
+
+
+const char* Hover::getTouchTapString(uint8_t eventByte) {
+  switch (eventByte) {
+	case B00100001:	return "Touch South";
+	case B00100010:	return "Touch West";
+	case B00100100:	return "Touch North";
+	case B00101000:	return "Touch East";
+	case B00110000:	return "Touch Center";
 	case B01000001:	return "Tap South";
 	case B01000010:	return "Tap West";
 	case B01000100:	return "Tap North";
 	case B01001000:	return "Tap East";
 	case B01010000:	return "Tap Center";
+	case B10000001:	return "DblTap South";
+	case B10000010:	return "DblTap West";
+	case B10000100:	return "DblTap North";
+	case B10001000:	return "DblTap East";
+	case B10010000:	return "DblTap Center";
   } 
-  return "";
+  return "<NONE>";
 }
 
 
 void Hover::printDebug(StringBuilder* output) {
   if (NULL == output) return;
-  output->concatf("--- MGC3130\n----------------------------------\n-- Last position: (%d, %d, %d)\n", _pos_x, _pos_y, _pos_z);
-  output->concatf("-- Last swipe: %s\n-- Last tap: %s\n\n", getEventString(last_swipe), getEventString(last_tap));
-  output->concatf("-- Airwheel:   0x%08x\n", wheel_position);
+  output->concatf("--- MGC3130  (0x%02x)\n----------------------------------\n-- Last position: (0x%04x, 0x%04x, 0x%04x)\n", _i2caddr, _pos_x, _pos_y, _pos_z);
+  output->concatf("-- Last swipe:    %s\n-- Last tap:      %s\n", getSwipeString(last_swipe), getTouchTapString(last_tap));
+  output->concatf("-- Last dbl_tap:  %s\n-- Last touch:    %s\n", getTouchTapString(last_double_tap), getTouchTapString(last_touch));
+  output->concatf("-- Airwheel:      0x%08x\n\n", wheel_position);
+  output->concatf("-- TS Pin:     %d\n-- MCLR Pin:   %d\n", _ts_pin, _reset_pin);
 }
 

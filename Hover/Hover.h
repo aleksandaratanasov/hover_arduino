@@ -42,19 +42,40 @@ class StringBuilder;
 
 class Hover {
   public:
-	uint8_t last_event;
+	uint8_t last_swipe;
+	uint8_t last_tap;
+	uint8_t last_double_tap;
+	uint8_t last_touch;
+	uint8_t last_touch_noted;
+	uint8_t touch_counter;
+	uint8_t special;
+
+    int32_t _pos_x;
+    int32_t _pos_y;
+    int32_t _pos_z;
+	int32_t wheel_position;
+	
 	uint32_t events_received;
 
     Hover(int ts, int mclr, uint8_t addr = 0x42);
     void begin();
 
 	int8_t service();
-    const char* getEventString(uint8_t eventByte);
+    const char* getTouchTapString(uint8_t eventByte);
+	const char* getSwipeString(uint8_t eventByte);
 	
 	int8_t setIRQPin(uint8_t, int);
 	
-	void set_isr_mark(uint8_t mask);
+	//bool featureEnabled(uint8_t mask);
 
+	void enableApproachDetect(bool);
+	void enableAirwheel(bool);
+	
+	void set_isr_mark(uint8_t mask);
+	inline bool isPositionDirty() { return ((_pos_x + _pos_y + _pos_z) != -3); };
+	inline bool isTouchDirty() {    return (last_touch_noted != last_touch);   };
+
+	bool isDirty();
 	void markClean();
 
 	void printBrief(StringBuilder* output);
@@ -73,18 +94,14 @@ class Hover {
 	uint8_t _irq_pin_2;   // Pin number being used by optional IRQ pin.
 	uint8_t _irq_pin_3;   // Pin number being used by optional IRQ pin.
 	
+	uint8_t last_event;
+	
 	uint8_t service_flags;
 	uint8_t class_state;
 	
-	uint8_t last_swipe;
-	uint8_t last_tap;
-
-    int32_t _pos_x;
-    int32_t _pos_y;
-    int32_t _pos_z;
-	int32_t wheel_position;
-	
 	uint8_t getEvent(void);
+	
+	
 	
 #ifdef BOARD_IRQS_AND_PINS_DISTINCT
 	int get_irq_num_by_pin(int _pin);
