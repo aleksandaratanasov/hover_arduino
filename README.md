@@ -9,4 +9,5 @@ It also features five touch-sensitive regions for even more options.
 Hover uses I2C and 2 digital pins. It is compatible with Arduino, Raspberry Pi and more.
 
 Written by Emran Mahbub and Jonathan Li for Gearseven Studios.  
+Enhancement and extention by J. Ian Lindsay.
 BSD license, all text above must be included in any redistribution
