@@ -9,6 +9,7 @@
 #  Hover can be purchased here: http://www.justhover.com
 #
 #  Written by Emran Mahbub and Jonathan Li for Gearseven Studios.  
+#  Enhancement and extention by J. Ian Lindsay. 
 #  BSD license, all text above must be included in any redistribution
 #  ===========================================================================
 #
